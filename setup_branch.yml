@@ -1,0 +1,5 @@
+---
+- name: Configure NGH Branches Services
+  hosts: all_branches
+  roles:
+    - win_services

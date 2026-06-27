@@ -1,0 +1,44 @@
+---
+- name: Install DNS Role
+  win_feature:
+    name: DNS
+    state: present
+    include_management_tools: yes
+
+- name: Configure DNS Primary Zone
+  win_shell: |
+    if (!(Get-DnsServerZone -Name "{{ dns_zone_name }}" -ErrorAction SilentlyContinue)) {
+        Add-DnsServerPrimaryZone -Name "{{ dns_zone_name }}" -ZoneFile "{{ dns_zone_name }}.dns"
+        Write-Host "DNS Zone Created."
+    }
+
+- name: Install DHCP Role
+  win_feature:
+    name: DHCP
+    state: present
+    include_management_tools: yes
+
+- name: Setup DHCP Scopes for All VLANs
+  win_shell: |
+    if (!(Get-DhcpServerv4Scope -ScopeId "{{ item.net }}" -ErrorAction SilentlyContinue)) {
+        Add-DhcpServerv4Scope -Name "{{ item.name }}" -StartRange "{{ item.start }}" -EndRange "{{ item.end }}" -SubnetMask "{{ item.mask }}"
+        Set-DhcpServerv4OptionValue -ScopeId "{{ item.net }}" -OptionId 3 -Value "{{ item.gw }}"
+        Set-DhcpServerv4OptionValue -ScopeId "{{ item.net }}" -OptionId 6 -Value "{{ dns_ip }}"
+        Write-Host "DHCP Scope {{ item.name }} Created."
+    }
+  loop: "{{ oc_scopes if 'oc_branch' in group_names else et_scopes }}"
+
+- name: Ensure DNS and DHCP services are running
+  win_service:
+    name: "{{ item }}"
+    state: started
+    start_mode: auto
+  loop:
+    - DNS
+    - DHCPServer
+
+- name: Force Apply DNS Suffix Option 15 via PowerShell
+  ansible.windows.win_shell: |
+    Get-DhcpServerv4Scope | ForEach-Object { 
+      Set-DhcpServerv4OptionValue -ScopeId $_.ScopeId -OptionId 15 -Value "NGH.com" 
+    }
