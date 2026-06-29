@@ -1,0 +1,20 @@
+===================================================
+NEXT GENERATION HOSPITAL (NGH) - SYSTEM HEALTH REPORT
+===================================================
+Report Timestamp : 2026-06-29 12:33:16
+Node Hostname    : OC-SERVER
+OS Version       : Microsoft Windows Server 2019 Datacenter Evaluation (Build: 17763)
+Uptime           : 0 days, 4 hours
+Disk Free (C:)   : 23.72 GB
+Assigned AD Site : Oncology-Site
+Kerberos Channel : PASSED (100% Secure Kerberos Trust)
+---------------------------------------------------
+CORE SERVICES ENGINE STATUS:
+ADWS -> Running
+DHCPServer -> Running
+DNS -> Running
+NTDS -> Running
+
+LAST REPLICATION SYNC STATUS:
+Last Successful Sync : 2026-06-29 12:32:48 | Partners: 5/5 Healthy
+===================================================
