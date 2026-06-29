@@ -1,0 +1,20 @@
+===================================================
+NEXT GENERATION HOSPITAL (NGH) - SYSTEM HEALTH REPORT
+===================================================
+Report Timestamp : 2026-06-29 12:33:22
+Node Hostname    : WIN-UP2GAPKSGGQ
+OS Version       : Microsoft Windows Server 2019 Datacenter Evaluation (Build: 17763)
+Uptime           : 0 days, 19 hours
+Disk Free (C:)   : 33.32 GB
+Assigned AD Site : HQ-Site
+Kerberos Channel : DC NODE - Kerberos KDC Active @ WIN-UP2GAPKSGGQ.NGH.com | Site: HQ-Site
+---------------------------------------------------
+CORE SERVICES ENGINE STATUS:
+ADWS -> Running
+DHCPServer -> Running
+DNS -> Running
+NTDS -> Running
+
+LAST REPLICATION SYNC STATUS:
+Last Successful Sync : 2026-06-29 12:33:06 | Partners: 11/20 Healthy
+===================================================
