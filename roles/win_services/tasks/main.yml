@@ -4,6 +4,7 @@
     name: DNS
     state: present
     include_management_tools: yes
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
 
 - name: Configure DNS Primary Zone
   win_shell: |
@@ -11,12 +12,14 @@
         Add-DnsServerPrimaryZone -Name "{{ dns_zone_name }}" -ZoneFile "{{ dns_zone_name }}.dns"
         Write-Host "DNS Zone Created."
     }
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
 
 - name: Install DHCP Role
   win_feature:
     name: DHCP
     state: present
     include_management_tools: yes
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
 
 - name: Setup DHCP Scopes for All VLANs
   win_shell: |
@@ -26,7 +29,8 @@
         Set-DhcpServerv4OptionValue -ScopeId "{{ item.net }}" -OptionId 6 -Value "{{ dns_ip }}"
         Write-Host "DHCP Scope {{ item.name }} Created."
     }
-  loop: "{{ oc_scopes if 'oc_branch' in group_names else et_scopes }}"
+  loop: "{{ oc_scopes if 'oc_branch' in group_names else (et_scopes if 'et_branch' in group_names else []) }}"
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
 
 - name: Ensure DNS and DHCP services are running
   win_service:
@@ -36,9 +40,84 @@
   loop:
     - DNS
     - DHCPServer
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
 
 - name: Force Apply DNS Suffix Option 15 via PowerShell
   ansible.windows.win_shell: |
-    Get-DhcpServerv4Scope | ForEach-Object { 
-      Set-DhcpServerv4OptionValue -ScopeId $_.ScopeId -OptionId 15 -Value "NGH.com" 
+    Get-DhcpServerv4Scope | ForEach-Object {
+      Set-DhcpServerv4OptionValue -ScopeId $_.ScopeId -OptionId 15 -Value "NGH.com"
     }
+  when: "'oc_branch' in group_names or 'et_branch' in group_names"
+
+- name: Fetch Live AD Topology, Kerberos Health & System Metrics
+  ansible.windows.win_shell: |
+    $HostName = $env:COMPUTERNAME
+    $OS = Get-CimInstance Win32_OperatingSystem
+    $Disk = Get-PSDrive C | Select-Object @{Name="FreeGB";Expression={[math]::Round($_.Free/1GB, 2)}}
+    $Uptime = (Get-Date) - $OS.LastBootUpTime
+
+    $dcInfo = $null
+    try { $dcInfo = Get-ADDomainController -ErrorAction Stop } catch {}
+    $isDC = $dcInfo -ne $null
+
+    if ($isDC) {
+        $Site = $dcInfo.Site
+        $Trust = "DC NODE - Kerberos KDC Active @ $($dcInfo.HostName) | Site: $($dcInfo.Site)"
+    } else {
+        $Site = try { (nltest /dsgetsite 2>$null)[0].Trim() } catch { "NGH.com Member Node" }
+        $Trust = try {
+            if (Test-ComputerSecureChannel -ErrorAction Stop) {
+                "PASSED (100% Secure Kerberos Trust)"
+            } else {
+                "FAILED - Run: Test-ComputerSecureChannel -Repair"
+            }
+        } catch { "N/A" }
+    }
+
+    $ActiveServices = Get-Service -Name DNS, DHCPServer, NTDS, ADWS -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) -> $($_.Status)" } | Out-String
+
+    $RawRepl = repadmin /showrepl
+    $SuccessAttempts = $RawRepl | Where-Object { $_ -match "Last attempt.+was successful" }
+    $FailedAttempts  = $RawRepl | Where-Object { $_ -match "Last attempt.+failed" }
+    $LastSuccessTime = $SuccessAttempts | ForEach-Object {
+        if ($_ -match "@ ([\d\-]+ [\d:]+) was successful") { $matches[1] }
+    } | Sort-Object -Descending | Select-Object -First 1
+
+    $TotalPartners  = ($RawRepl | Where-Object { $_ -match "via RPC" }).Count
+    $FailedPartners = $FailedAttempts.Count
+    $OKPartners     = $TotalPartners - $FailedPartners
+
+    if ($LastSuccessTime -and $OKPartners -gt 0) {
+        $LastSync = "Last Successful Sync : $LastSuccessTime | Partners: $OKPartners/$TotalPartners Healthy"
+    } elseif ($FailedPartners -gt 0 -and $OKPartners -eq 0) {
+        $LastSync = "Replication Isolated - All $TotalPartners partners unreachable (Lab network boundary)"
+    } else {
+        $LastSync = "Replication Status Unknown"
+    }
+
+    $report = "===================================================" + "`n"
+    $report += "NEXT GENERATION HOSPITAL (NGH) - SYSTEM HEALTH REPORT" + "`n"
+    $report += "===================================================" + "`n"
+    $report += "Report Timestamp : " + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + "`n"
+    $report += "Node Hostname    : " + $HostName + "`n"
+    $report += "OS Version       : " + $OS.Caption + " (Build: " + $OS.BuildNumber + ")" + "`n"
+    $report += "Uptime           : " + $Uptime.Days + " days, " + $Uptime.Hours + " hours" + "`n"
+    $report += "Disk Free (C:)   : " + $Disk.FreeGB + " GB" + "`n"
+    $report += "Assigned AD Site : " + $Site + "`n"
+    $report += "Kerberos Channel : " + $Trust + "`n"
+    $report += "---------------------------------------------------" + "`n"
+    $report += "CORE SERVICES ENGINE STATUS:" + "`n"
+    $report += $ActiveServices + "`n"
+    $report += "LAST REPLICATION SYNC STATUS:" + "`n"
+    $report += $LastSync + "`n"
+    $report += "==================================================="
+    Write-Output $report
+  register: node_health_report
+  tags: [ audit ]
+
+- name: Save Fleet Reports Locally into Linux Reports Folder
+  ansible.builtin.copy:
+    content: "{{ node_health_report.stdout }}"
+    dest: "./Reports/{{ inventory_hostname }}_health_audit.txt"
+  delegate_to: localhost
+  tags: [ audit ]
